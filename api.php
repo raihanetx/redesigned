@@ -18,6 +18,7 @@ $coupons_file_path = 'coupons.json';
 $orders_file_path = 'orders.json';
 $config_file_path = 'config.json';
 $hotdeals_file_path = 'hotdeals.json';
+$customers_file_path = 'customers.json';
 $upload_dir = 'uploads/';
 
 // --- Helper Functions ---
@@ -107,6 +108,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action'])) {
         }
         exit;
     }
+    if ($_GET['action'] === 'get_customers') {
+        header('Content-Type: application/json');
+        echo json_encode(get_data($customers_file_path));
+        exit;
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -128,7 +134,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'update_hero_banner', 'update_favicon', 'update_currency_rate', 
         'update_contact_info', 'update_admin_password', 'update_site_logo',
         'update_hot_deals', 'update_smtp_settings', 'send_manual_email', 'update_site_pages',
-        'add_payment_method', 'edit_payment_method', 'delete_payment_method', 'toggle_payment_method_status'
+        'add_payment_method', 'edit_payment_method', 'delete_payment_method', 'toggle_payment_method_status',
+        'add_customer_from_order'
     ];
 
     if (in_array($action, $admin_actions)) {
@@ -370,6 +377,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($all_orders as &$order_to_update) { if ($order_to_update['order_id'] == $order_id) { $order_to_update['access_email_sent'] = true; break; } }
                 save_data($orders_file_path, $all_orders);
             }
+        }
+        $redirect_url = 'admin.php?view=orders';
+    }
+
+    if ($action === 'add_customer_from_order') {
+        $order_id = $_POST['order_id'];
+        $all_orders = get_data($orders_file_path);
+        $order_to_add = null;
+        foreach ($all_orders as $order) {
+            if ($order['order_id'] == $order_id) {
+                $order_to_add = $order;
+                break;
+            }
+        }
+
+        if ($order_to_add) {
+            $customers = get_data($customers_file_path);
+            $customer_phone = $order_to_add['customer']['phone'];
+            $customer_name = $order_to_add['customer']['name'];
+            $customer_index = -1;
+
+            foreach ($customers as $index => $customer) {
+                if ($customer['phone'] === $customer_phone) {
+                    $customer_index = $index;
+                    break;
+                }
+            }
+
+            if ($customer_index === -1) {
+                $customers[] = [
+                    'name' => $customer_name,
+                    'phone' => $customer_phone,
+                    'products' => []
+                ];
+                $customer_index = count($customers) - 1;
+            }
+
+            foreach ($order_to_add['items'] as $item) {
+                $renewal_date = 'N/A';
+                $duration = $item['pricing']['duration'];
+                if (preg_match('/(\d+)\s+(day|week|month|year)s?/i', $duration, $matches)) {
+                    $value = (int)$matches[1];
+                    $unit = strtolower($matches[2]);
+                    $date = new DateTime($order_to_add['order_date']);
+                    $date->modify("+$value $unit");
+                    $renewal_date = $date->format('Y-m-d');
+                }
+
+                $customers[$customer_index]['products'][] = [
+                    'name' => $item['name'],
+                    'purchase_date' => date('Y-m-d', strtotime($order_to_add['order_date'])),
+                    'renewal_date' => $renewal_date
+                ];
+            }
+            save_data($customers_file_path, $customers);
         }
         $redirect_url = 'admin.php?view=orders';
     }
