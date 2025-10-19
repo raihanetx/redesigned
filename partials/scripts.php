@@ -175,7 +175,7 @@
                 const codeToApply = this.couponCode.toUpperCase(); const foundCoupon = this.allCoupons.find(c => c.code === codeToApply);
                 if (foundCoupon && foundCoupon.is_active) {
                     let isApplicable = false;
-                    if (!foundCoupon.scope || coupon.scope === 'all_products') { isApplicable = this.checkoutItems.length > 0; }
+                    if (!foundCoupon.scope || foundCoupon.scope === 'all_products') { isApplicable = this.checkoutItems.length > 0; }
                     else if (foundCoupon.scope === 'category') { isApplicable = this.checkoutItems.some(item => this.getProductById(item.productId)?.category === foundCoupon.scope_value); }
                     else if (foundCoupon.scope === 'single_product') { isApplicable = this.checkoutItems.some(item => item.productId == foundCoupon.scope_value); }
                     if (isApplicable) { this.appliedCoupon = foundCoupon; this.couponMessage = `Coupon "${foundCoupon.code}" applied successfully!`; this.showModal('Success', this.couponMessage, 'success'); } 
