@@ -14,20 +14,20 @@
                                         <p class="font-medium text-gray-800">{{ getProductById(item.productId)?.name }}</p>
                                         <p class="text-sm text-gray-500">{{ 'Qty: ' + item.quantity }}</p>
                                     </div>
-                                    <p class="font-semibold text-gray-800">{{ formatPrice(getProductById(item.productId)?.pricing[item.durationIndex].price * item.quantity) }}</p>
+                                    <p class="font-semibold text-gray-800">{{ formatCheckoutPrice(getProductById(item.productId)?.pricing[item.durationIndex].price * item.quantity) }}</p>
                                 </li>
                             </template>
                         </ul>
                         <div class="mt-4 pt-4 border-t">
-                            <div class="flex justify-between text-gray-600 mb-2"><span>Subtotal</span><span>{{ formatPrice(checkoutTotals.subtotal) }}</span></div>
+                            <div class="flex justify-between text-gray-600 mb-2"><span>Subtotal</span><span>{{ formatCheckoutPrice(checkoutTotals.subtotal) }}</span></div>
                             <template v-if="appliedCoupon">
                                 <div class="flex justify-between text-green-600 mb-2 font-semibold">
                                     <span>Discount ({{ appliedCoupon.code }} - {{ appliedCoupon.discount_percentage }}%)</span>
-                                    <span>{{ '-' + formatPrice(checkoutTotals.discount) }}</span>
+                                    <span>{{ '-' + formatCheckoutPrice(checkoutTotals.discount) }}</span>
                                 </div>
                             </template>
                             <div class="flex justify-between text-gray-600 mb-4"><span>Shipping</span><span>Free</span></div>
-                            <div class="flex justify-between text-xl font-bold text-gray-900 mb-6"><span>Total</span><span>{{ formatPrice(checkoutTotals.total) }}</span></div>
+                            <div class="flex justify-between text-xl font-bold text-gray-900 mb-6"><span>Total</span><span>{{ formatCheckoutPrice(checkoutTotals.total) }}</span></div>
                             <div class="mt-4">
                                 <label for="coupon" class="block text-sm font-medium text-gray-700 mb-1">Coupon Code</label>
                                 <div class="flex gap-2">
