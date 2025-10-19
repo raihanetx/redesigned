@@ -142,8 +142,8 @@ $current_view = $_GET['view'] ?? 'dashboard';
         .btn-danger { background-color: #fee2e2; color: #b91c1c; } .btn-danger:hover { background-color: #fecaca; color: #991b1b; }
         .btn-success { background-color: #dcfce7; color: #166534; } .btn-success:hover { background-color: #bbf7d0; }
         .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.875rem; }
-        .tab { padding: 0.75rem 1rem; font-weight: 600; color: #4b5563; border-bottom: 3px solid transparent; }
-        .tab-active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+        .tab { padding: 0.75rem 1rem; font-weight: 600; color: #4b5563; border-left: 3px solid transparent; }
+        .tab-active { color: var(--primary-color); border-left-color: var(--primary-color); }
         .stats-filter-btn { padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 500; transition: all 0.2s; border: 1px solid transparent; }
         .stats-filter-btn.active { background-color: var(--primary-color); color: white; }
         .stats-filter-btn:not(.active) { background-color: #f3f4f6; color: #374151; }
@@ -221,19 +221,22 @@ $current_view = $_GET['view'] ?? 'dashboard';
                 <h1 class="text-3xl font-bold text-gray-800">Admin Dashboard</h1>
                 <a href="logout.php" class="btn btn-secondary"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
             </header>
-            <div class="card">
-                <div class="border-b border-gray-200">
-                    <nav class="-mb-px flex gap-4 px-6 overflow-x-auto">
-                        <a href="admin.php?view=dashboard" class="tab flex-shrink-0 <?= $current_view === 'dashboard' ? 'tab-active' : '' ?>"><i class="fa-solid fa-table-columns mr-2"></i>Dashboard</a>
-                        <a href="admin.php?view=categories" class="tab flex-shrink-0 <?= $current_view === 'categories' ? 'tab-active' : '' ?>"><i class="fa-solid fa-list mr-2"></i>Categories</a>
-                        <a href="admin.php?view=hotdeals" class="tab flex-shrink-0 <?= $current_view === 'hotdeals' ? 'tab-active' : '' ?>"><i class="fa-solid fa-fire mr-2"></i>Hot Deals</a>
-                        <a href="admin.php?view=orders" class="tab flex-shrink-0 <?= $current_view === 'orders' ? 'tab-active' : '' ?>"><i class="fa-solid fa-bag-shopping mr-2"></i>Orders <?php if ($pending_orders_count > 0): ?><span class="ml-2 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full px-2 py-0.5"><?= $pending_orders_count ?></span><?php endif; ?></a>
-                        <a href="admin.php?view=customers" class="tab flex-shrink-0 <?= $current_view === 'customers' ? 'tab-active' : '' ?>"><i class="fa-solid fa-users mr-2"></i>Customers</a>
-                        <a href="admin.php?view=reviews" class="tab flex-shrink-0 <?= $current_view === 'reviews' ? 'tab-active' : '' ?>"><i class="fa-solid fa-star mr-2"></i>Reviews <span class="ml-2 bg-purple-100 text-purple-700 text-xs font-bold rounded-full px-2 py-0.5"><?= count($all_reviews) ?></span></a>
-                        <a href="admin.php?view=pages" class="tab flex-shrink-0 <?= $current_view === 'pages' ? 'tab-active' : '' ?>"><i class="fa-solid fa-file-alt mr-2"></i>Pages</a>
-                        <a href="admin.php?view=settings" class="tab flex-shrink-0 <?= $current_view === 'settings' ? 'tab-active' : '' ?>"><i class="fa-solid fa-gear mr-2"></i>Settings</a>
-                    </nav>
+            <div class="grid grid-cols-12 gap-8">
+                <div class="col-span-2">
+                    <div class="card p-4">
+                        <nav class="flex-col space-y-2">
+                            <a href="admin.php?view=dashboard" class="tab <?= $current_view === 'dashboard' ? 'tab-active' : '' ?>"><i class="fa-solid fa-table-columns mr-2"></i>Dashboard</a>
+                            <a href="admin.php?view=categories" class="tab <?= $current_view === 'categories' ? 'tab-active' : '' ?>"><i class="fa-solid fa-list mr-2"></i>Categories</a>
+                            <a href="admin.php?view=hotdeals" class="tab <?= $current_view === 'hotdeals' ? 'tab-active' : '' ?>"><i class="fa-solid fa-fire mr-2"></i>Hot Deals</a>
+                            <a href="admin.php?view=orders" class="tab <?= $current_view === 'orders' ? 'tab-active' : '' ?>"><i class="fa-solid fa-bag-shopping mr-2"></i>Orders <?php if ($pending_orders_count > 0): ?><span class="ml-2 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full px-2 py-0.5"><?= $pending_orders_count ?></span><?php endif; ?></a>
+                            <a href="admin.php?view=customers" class="tab <?= $current_view === 'customers' ? 'tab-active' : '' ?>"><i class="fa-solid fa-users mr-2"></i>Customers</a>
+                            <a href="admin.php?view=reviews" class="tab <?= $current_view === 'reviews' ? 'tab-active' : '' ?>"><i class="fa-solid fa-star mr-2"></i>Reviews <span class="ml-2 bg-purple-100 text-purple-700 text-xs font-bold rounded-full px-2 py-0.5"><?= count($all_reviews) ?></span></a>
+                            <a href="admin.php?view=pages" class="tab <?= $current_view === 'pages' ? 'tab-active' : '' ?>"><i class="fa-solid fa-file-alt mr-2"></i>Pages</a>
+                            <a href="admin.php?view=settings" class="tab <?= $current_view === 'settings' ? 'tab-active' : '' ?>"><i class="fa-solid fa-gear mr-2"></i>Settings</a>
+                        </nav>
+                    </div>
                 </div>
+                <div class="col-span-10 card">
                 <!-- Dashboard (Stats & Coupon) View -->
                 <div id="view-dashboard" style="<?= $current_view === 'dashboard' ? '' : 'display:none;' ?>" class="p-6 space-y-8">
                     <div>
