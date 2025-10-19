@@ -23,6 +23,51 @@ if(!empty($all_orders_data_raw)) {
     usort($all_orders_data_raw, fn($a, $b) => $b['order_id'] <=> $a['order_id']);
 }
 
+// New: Load Customer Profiles Data
+$profiles_file_path = 'customer_profiles.json';
+if (!file_exists($profiles_file_path)) file_put_contents($profiles_file_path, '[]');
+$all_customer_profiles_raw = json_decode(file_get_contents($profiles_file_path), true) ?: [];
+
+// --- Process Customer Profiles for Renewal ---
+$profiles_due_renewal = [];
+$other_profiles = [];
+$today = new DateTime();
+
+foreach ($all_customer_profiles_raw as $profile) {
+    $order_date = new DateTime($profile['order_date']);
+    $duration_str = $profile['items'][0]['pricing']['duration'] ?? '1 month'; // Default to 1 month
+
+    // Simple duration parsing
+    $interval = 'P1M'; // Default interval
+    if (preg_match('/(\d+)\s*Month/i', $duration_str, $matches)) {
+        $interval = 'P' . $matches[1] . 'M';
+    } elseif (preg_match('/(\d+)\s*Year/i', $duration_str, $matches)) {
+        $interval = 'P' . $matches[1] . 'Y';
+    }
+
+    try {
+        $expiry_date = clone $order_date;
+        $expiry_date->add(new DateInterval($interval));
+        $profile['expiry_date'] = $expiry_date;
+
+        $diff_days = $today->diff($expiry_date)->days;
+        $is_past = $today > $expiry_date;
+
+        if ($is_past || $diff_days <= 7) {
+            $profiles_due_renewal[] = $profile;
+        } else {
+            $other_profiles[] = $profile;
+        }
+    } catch (Exception $e) {
+        // Handle cases where DateInterval parsing fails
+        $profile['expiry_date'] = null;
+        $other_profiles[] = $profile;
+    }
+}
+usort($profiles_due_renewal, fn($a, $b) => $a['expiry_date'] <=> $b['expiry_date']);
+usort($other_profiles, fn($a, $b) => strcmp($a['customer']['name'], $b['customer']['name']));
+
+
 // New: Load Site Config Data
 $config_file_path = 'config.json';
 if (!file_exists($config_file_path)) file_put_contents($config_file_path, '{"hero_banner":[],"favicon":"","contact_info":{"phone":"","whatsapp":"","email":""},"admin_password":"password123", "usd_to_bdt_rate": 110, "site_logo":"", "hero_slider_interval": 5000, "hot_deals_speed": 40, "payment_methods":{}, "smtp_settings": {}}');
@@ -142,8 +187,8 @@ $current_view = $_GET['view'] ?? 'dashboard';
         .btn-danger { background-color: #fee2e2; color: #b91c1c; } .btn-danger:hover { background-color: #fecaca; color: #991b1b; }
         .btn-success { background-color: #dcfce7; color: #166534; } .btn-success:hover { background-color: #bbf7d0; }
         .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.875rem; }
-        .tab { padding: 0.75rem 1rem; font-weight: 600; color: #4b5563; border-left: 3px solid transparent; }
-        .tab-active { color: var(--primary-color); border-left-color: var(--primary-color); }
+        .tab { padding: 0.75rem 1rem; font-weight: 600; color: #4b5563; border-bottom: 3px solid transparent; }
+        .tab-active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
         .stats-filter-btn { padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 500; transition: all 0.2s; border: 1px solid transparent; }
         .stats-filter-btn.active { background-color: var(--primary-color); color: white; }
         .stats-filter-btn:not(.active) { background-color: #f3f4f6; color: #374151; }
@@ -221,22 +266,19 @@ $current_view = $_GET['view'] ?? 'dashboard';
                 <h1 class="text-3xl font-bold text-gray-800">Admin Dashboard</h1>
                 <a href="logout.php" class="btn btn-secondary"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
             </header>
-            <div class="grid grid-cols-12 gap-8">
-                <div class="col-span-2">
-                    <div class="card p-4">
-                        <nav class="flex-col space-y-2">
-                            <a href="admin.php?view=dashboard" class="tab <?= $current_view === 'dashboard' ? 'tab-active' : '' ?>"><i class="fa-solid fa-table-columns mr-2"></i>Dashboard</a>
-                            <a href="admin.php?view=categories" class="tab <?= $current_view === 'categories' ? 'tab-active' : '' ?>"><i class="fa-solid fa-list mr-2"></i>Categories</a>
-                            <a href="admin.php?view=hotdeals" class="tab <?= $current_view === 'hotdeals' ? 'tab-active' : '' ?>"><i class="fa-solid fa-fire mr-2"></i>Hot Deals</a>
-                            <a href="admin.php?view=orders" class="tab <?= $current_view === 'orders' ? 'tab-active' : '' ?>"><i class="fa-solid fa-bag-shopping mr-2"></i>Orders <?php if ($pending_orders_count > 0): ?><span class="ml-2 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full px-2 py-0.5"><?= $pending_orders_count ?></span><?php endif; ?></a>
-                            <a href="admin.php?view=customers" class="tab <?= $current_view === 'customers' ? 'tab-active' : '' ?>"><i class="fa-solid fa-users mr-2"></i>Customers</a>
-                            <a href="admin.php?view=reviews" class="tab <?= $current_view === 'reviews' ? 'tab-active' : '' ?>"><i class="fa-solid fa-star mr-2"></i>Reviews <span class="ml-2 bg-purple-100 text-purple-700 text-xs font-bold rounded-full px-2 py-0.5"><?= count($all_reviews) ?></span></a>
-                            <a href="admin.php?view=pages" class="tab <?= $current_view === 'pages' ? 'tab-active' : '' ?>"><i class="fa-solid fa-file-alt mr-2"></i>Pages</a>
-                            <a href="admin.php?view=settings" class="tab <?= $current_view === 'settings' ? 'tab-active' : '' ?>"><i class="fa-solid fa-gear mr-2"></i>Settings</a>
-                        </nav>
-                    </div>
+            <div class="card">
+                <div class="border-b border-gray-200">
+                    <nav class="-mb-px flex gap-4 px-6 overflow-x-auto">
+                        <a href="admin.php?view=dashboard" class="tab flex-shrink-0 <?= $current_view === 'dashboard' ? 'tab-active' : '' ?>"><i class="fa-solid fa-table-columns mr-2"></i>Dashboard</a>
+                        <a href="admin.php?view=categories" class="tab flex-shrink-0 <?= $current_view === 'categories' ? 'tab-active' : '' ?>"><i class="fa-solid fa-list mr-2"></i>Categories</a>
+                        <a href="admin.php?view=hotdeals" class="tab flex-shrink-0 <?= $current_view === 'hotdeals' ? 'tab-active' : '' ?>"><i class="fa-solid fa-fire mr-2"></i>Hot Deals</a>
+                        <a href="admin.php?view=orders" class="tab flex-shrink-0 <?= $current_view === 'orders' ? 'tab-active' : '' ?>"><i class="fa-solid fa-bag-shopping mr-2"></i>Orders <?php if ($pending_orders_count > 0): ?><span class="ml-2 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full px-2 py-0.5"><?= $pending_orders_count ?></span><?php endif; ?></a>
+                        <a href="admin.php?view=profiles" class="tab flex-shrink-0 <?= $current_view === 'profiles' ? 'tab-active' : '' ?>"><i class="fa-solid fa-users mr-2"></i>Customer Profiles <span class="ml-2 bg-blue-100 text-blue-700 text-xs font-bold rounded-full px-2 py-0.5"><?= count($all_customer_profiles_raw) ?></span></a>
+                        <a href="admin.php?view=reviews" class="tab flex-shrink-0 <?= $current_view === 'reviews' ? 'tab-active' : '' ?>"><i class="fa-solid fa-star mr-2"></i>Reviews <span class="ml-2 bg-purple-100 text-purple-700 text-xs font-bold rounded-full px-2 py-0.5"><?= count($all_reviews) ?></span></a>
+                        <a href="admin.php?view=pages" class="tab flex-shrink-0 <?= $current_view === 'pages' ? 'tab-active' : '' ?>"><i class="fa-solid fa-file-alt mr-2"></i>Pages</a>
+                        <a href="admin.php?view=settings" class="tab flex-shrink-0 <?= $current_view === 'settings' ? 'tab-active' : '' ?>"><i class="fa-solid fa-gear mr-2"></i>Settings</a>
+                    </nav>
                 </div>
-                <div class="col-span-10 card">
                 <!-- Dashboard (Stats & Coupon) View -->
                 <div id="view-dashboard" style="<?= $current_view === 'dashboard' ? '' : 'display:none;' ?>" class="p-6 space-y-8">
                     <div>
@@ -383,38 +425,33 @@ $current_view = $_GET['view'] ?? 'dashboard';
                                             </template>
                                             <p class="font-bold text-base mt-1"><strong>Total:</strong> <span x-text="'৳' + order.totals.total.toFixed(2)"></span></p>
                                             
-                                            <template x-if="order.status === 'Pending'">
-                                                <div class="mt-4 flex gap-2">
+                                            <div class="mt-4 flex gap-2 flex-wrap">
+                                                <template x-if="order.status === 'Pending'">
                                                     <form action="api.php" method="POST"><input type="hidden" name="action" value="update_order_status"><input type="hidden" name="order_id" :value="order.order_id"><input type="hidden" name="new_status" value="Confirmed"><button type="submit" class="btn btn-success btn-sm">Confirm</button></form>
                                                     <form action="api.php" method="POST"><input type="hidden" name="action" value="update_order_status"><input type="hidden" name="order_id" :value="order.order_id"><input type="hidden" name="new_status" value="Cancelled"><button type="submit" class="btn btn-danger btn-sm">Cancel</button></form>
-                                                </div>
-                                            </template>
-                                            <template x-if="order.status === 'Confirmed'">
-                                                <div class="mt-4 flex gap-2">
-                                                    <form action="api.php" method="POST">
-                                                        <input type="hidden" name="action" value="add_customer_from_order">
-                                                        <input type="hidden" name="order_id" :value="order.order_id">
-                                                        <button type="submit" class="btn btn-primary btn-sm">
-                                                            <i class="fa-solid fa-user-plus"></i> Add to Customers
-                                                        </button>
-                                                    </form>
-                                                </div>
-                                            </template>
-                                            <template x-if="order.status === 'Confirmed'">
-                                                <div class="mt-4 pt-4 border-t">
-                                                    <template x-if="!order.access_email_sent">
-                                                        <button @click="openModal(order.order_id, order.customer.email)" class="btn btn-primary btn-sm w-full">
-                                                            <i class="fa-solid fa-paper-plane"></i> Send Access Details
-                                                        </button>
-                                                    </template>
-                                                    <template x-if="order.access_email_sent">
-                                                        <div class="flex items-center justify-center gap-2 text-green-600 font-semibold bg-green-50 p-2 rounded-md text-sm">
-                                                            <i class="fa-solid fa-check-circle"></i>
-                                                            <span>Access Sent</span>
-                                                        </div>
-                                                    </template>
-                                                </div>
-                                            </template>
+                                                </template>
+                                                <template x-if="order.status === 'Confirmed'">
+                                                    <div class="pt-2 w-full">
+                                                        <template x-if="!order.access_email_sent">
+                                                            <button @click="openModal(order.order_id, order.customer.email)" class="btn btn-primary btn-sm w-full">
+                                                                <i class="fa-solid fa-paper-plane"></i> Send Access Details
+                                                            </button>
+                                                        </template>
+                                                        <template x-if="order.access_email_sent">
+                                                            <div class="flex items-center justify-center gap-2 text-green-600 font-semibold bg-green-50 p-2 rounded-md text-sm">
+                                                                <i class="fa-solid fa-check-circle"></i>
+                                                                <span>Access Sent</span>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <form action="api.php" method="POST" onsubmit="return confirm('Add or update this customer profile?');">
+                                                    <input type="hidden" name="action" value="add_customer_profile">
+                                                    <input type="hidden" name="order_id" :value="order.order_id">
+                                                    <button type="submit" class="btn btn-secondary btn-sm"><i class="fa-solid fa-user-plus"></i> Add to Profiles</button>
+                                                </form>
+                                            </div>
+
                                         </div>
                                     </div>
                                 </div>
@@ -427,10 +464,99 @@ $current_view = $_GET['view'] ?? 'dashboard';
                         <button @click="nextPage" :disabled="currentPage === totalPages" class="btn btn-secondary" :class="{'opacity-50 cursor-not-allowed': currentPage === totalPages}">Next <i class="fa-solid fa-chevron-right"></i></button>
                     </div>
                 </div>
+
+                <!-- Customer Profiles View -->
+                <div id="view-profiles" style="<?= $current_view === 'profiles' ? '' : 'display:none;' ?>" class="p-6">
+                    <div class="mb-8">
+                        <h2 class="text-xl font-bold text-gray-700 mb-3">Renewals Due (Expired or within 7 days)</h2>
+                         <?php if (empty($profiles_due_renewal)): ?>
+                            <p class="text-gray-500 text-center py-6 bg-gray-50 rounded-lg border">No profiles are due for renewal soon.</p>
+                        <?php else: ?>
+                            <div class="space-y-4">
+                                <?php foreach($profiles_due_renewal as $profile):
+                                    $is_past_due = (new DateTime()) > $profile['expiry_date'];
+                                ?>
+                                <div class="bg-white border-2 <?= $is_past_due ? 'border-red-200' : 'border-yellow-200' ?> rounded-lg p-4">
+                                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
+                                        <div>
+                                            <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Customer</h4>
+                                            <p><strong>Name:</strong> <?= htmlspecialchars($profile['customer']['name']) ?></p>
+                                            <p><strong>Phone:</strong> <?= htmlspecialchars($profile['customer']['phone']) ?></p>
+                                            <p><strong>Email:</strong> <?= htmlspecialchars($profile['customer']['email']) ?></p>
+                                        </div>
+                                        <div>
+                                             <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Last Purchase</h4>
+                                            <p class="font-medium"><?= htmlspecialchars($profile['items'][0]['name']) ?> (<?= htmlspecialchars($profile['items'][0]['pricing']['duration']) ?>)</p>
+                                            <p class="font-bold text-base flex items-center gap-2 mt-1">
+                                                <span class="h-3 w-3 rounded-full <?= $is_past_due ? 'bg-red-500' : 'bg-yellow-400' ?>"></span>
+                                                Expires: <?= $profile['expiry_date'] ? $profile['expiry_date']->format('d M, Y') : 'N/A' ?>
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Actions</h4>
+                                            <div class="flex flex-col sm:flex-row gap-2 items-start">
+                                                <?php $phone = preg_replace('/^0/', '880', $profile['customer']['phone']); ?>
+                                                <a href="https://wa.me/<?= htmlspecialchars($phone) ?>" target="_blank" class="btn btn-success btn-sm w-full sm:w-auto"><i class="fab fa-whatsapp"></i> Message</a>
+                                                <form action="api.php" method="POST" onsubmit="return confirm('Are you sure?');" class="w-full sm:w-auto">
+                                                    <input type="hidden" name="action" value="delete_customer_profile">
+                                                    <input type="hidden" name="profile_id" value="<?= htmlspecialchars($profile['id']) ?>">
+                                                    <button type="submit" class="btn btn-danger btn-sm w-full"><i class="fa-solid fa-trash-can"></i> Delete</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-700 mb-4">All Profiles</h2>
+                        <?php if (empty($other_profiles)): ?>
+                            <p class="text-gray-500 text-center py-10 bg-gray-50 rounded-lg border">No other customer profiles found.</p>
+                        <?php else: ?>
+                            <div class="space-y-4">
+                                <?php foreach($other_profiles as $profile): ?>
+                                <div class="bg-white border rounded-lg p-4">
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
+                                        <div>
+                                            <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Customer</h4>
+                                            <p><strong>Name:</strong> <?= htmlspecialchars($profile['customer']['name']) ?></p>
+                                            <p><strong>Phone:</strong> <?= htmlspecialchars($profile['customer']['phone']) ?></p>
+                                            <p><strong>Email:</strong> <?= htmlspecialchars($profile['customer']['email']) ?></p>
+                                        </div>
+                                        <div>
+                                             <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Last Purchase</h4>
+                                            <p class="font-medium"><?= htmlspecialchars($profile['items'][0]['name']) ?> (<?= htmlspecialchars($profile['items'][0]['pricing']['duration']) ?>)</p>
+                                            <p class="font-bold text-base flex items-center gap-2 mt-1">
+                                                <span class="h-3 w-3 rounded-full bg-green-500"></span>
+                                                Expires: <?= $profile['expiry_date'] ? $profile['expiry_date']->format('d M, Y') : 'N/A' ?>
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Actions</h4>
+                                            <div class="flex flex-col sm:flex-row gap-2 items-start">
+                                                <?php $phone = preg_replace('/^0/', '880', $profile['customer']['phone']); ?>
+                                                <a href="https://wa.me/<?= htmlspecialchars($phone) ?>" target="_blank" class="btn btn-success btn-sm w-full sm:w-auto"><i class="fab fa-whatsapp"></i> Message</a>
+                                                <form action="api.php" method="POST" onsubmit="return confirm('Are you sure?');" class="w-full sm:w-auto">
+                                                    <input type="hidden" name="action" value="delete_customer_profile">
+                                                    <input type="hidden" name="profile_id" value="<?= htmlspecialchars($profile['id']) ?>">
+                                                    <button type="submit" class="btn btn-danger btn-sm w-full"><i class="fa-solid fa-trash-can"></i> Delete</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+
                 <!-- Review Management View -->
                 <div id="view-reviews" style="<?= $current_view === 'reviews' ? '' : 'display:none;' ?>" class="p-6"><h2 class="text-xl font-bold text-gray-700 mb-4">Manage All Reviews</h2><?php if(empty($all_reviews)): ?><p class="text-gray-500 text-center py-10">There are no reviews on the website yet.</p><?php else: ?><div class="space-y-4"><?php foreach($all_reviews as $review): ?><div class="bg-gray-50 border rounded-lg p-4 flex flex-col md:flex-row gap-4 justify-between items-start"><div class="flex-grow"><p class="font-semibold text-gray-800"><?= htmlspecialchars($review['name']) ?> <span class="text-yellow-500 ml-2"><?= str_repeat('★', $review['rating']) . str_repeat('☆', 5 - $review['rating']) ?></span></p><p class="text-sm text-gray-500">For: <strong><?= htmlspecialchars($review['product_name']) ?></strong></p><p class="mt-2 text-gray-700">"<?= nl2br(htmlspecialchars($review['comment'])) ?>"</p></div><div class="flex-shrink-0 flex items-center gap-2 mt-2 md:mt-0"><form action="api.php" method="POST" onsubmit="return confirm('Are you sure?');"><input type="hidden" name="action" value="update_review_status"><input type="hidden" name="product_id" value="<?= $review['product_id'] ?>"><input type="hidden" name="review_id" value="<?= $review['id'] ?>"><input type="hidden" name="new_status" value="deleted"><button type="submit" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i> Delete</button></form></div></div><?php endforeach; ?></div><?php endif; ?></div>
-
-                <?php include 'views/customers.php'; ?>
 
                 <!-- Page Content Management View -->
                 <div id="view-pages" style="<?= $current_view === 'pages' ? '' : 'display:none;' ?>" class="p-6">
