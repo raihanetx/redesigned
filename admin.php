@@ -23,51 +23,6 @@ if(!empty($all_orders_data_raw)) {
     usort($all_orders_data_raw, fn($a, $b) => $b['order_id'] <=> $a['order_id']);
 }
 
-// New: Load Customer Profiles Data
-$profiles_file_path = 'customer_profiles.json';
-if (!file_exists($profiles_file_path)) file_put_contents($profiles_file_path, '[]');
-$all_customer_profiles_raw = json_decode(file_get_contents($profiles_file_path), true) ?: [];
-
-// --- Process Customer Profiles for Renewal ---
-$profiles_due_renewal = [];
-$other_profiles = [];
-$today = new DateTime();
-
-foreach ($all_customer_profiles_raw as $profile) {
-    $order_date = new DateTime($profile['order_date']);
-    $duration_str = $profile['items'][0]['pricing']['duration'] ?? '1 month'; // Default to 1 month
-
-    // Simple duration parsing
-    $interval = 'P1M'; // Default interval
-    if (preg_match('/(\d+)\s*Month/i', $duration_str, $matches)) {
-        $interval = 'P' . $matches[1] . 'M';
-    } elseif (preg_match('/(\d+)\s*Year/i', $duration_str, $matches)) {
-        $interval = 'P' . $matches[1] . 'Y';
-    }
-
-    try {
-        $expiry_date = clone $order_date;
-        $expiry_date->add(new DateInterval($interval));
-        $profile['expiry_date'] = $expiry_date;
-
-        $diff_days = $today->diff($expiry_date)->days;
-        $is_past = $today > $expiry_date;
-
-        if ($is_past || $diff_days <= 7) {
-            $profiles_due_renewal[] = $profile;
-        } else {
-            $other_profiles[] = $profile;
-        }
-    } catch (Exception $e) {
-        // Handle cases where DateInterval parsing fails
-        $profile['expiry_date'] = null;
-        $other_profiles[] = $profile;
-    }
-}
-usort($profiles_due_renewal, fn($a, $b) => $a['expiry_date'] <=> $b['expiry_date']);
-usort($other_profiles, fn($a, $b) => strcmp($a['customer']['name'], $b['customer']['name']));
-
-
 // New: Load Site Config Data
 $config_file_path = 'config.json';
 if (!file_exists($config_file_path)) file_put_contents($config_file_path, '{"hero_banner":[],"favicon":"","contact_info":{"phone":"","whatsapp":"","email":""},"admin_password":"password123", "usd_to_bdt_rate": 110, "site_logo":"", "hero_slider_interval": 5000, "hot_deals_speed": 40, "payment_methods":{}, "smtp_settings": {}}');
@@ -187,8 +142,6 @@ $current_view = $_GET['view'] ?? 'dashboard';
         .btn-danger { background-color: #fee2e2; color: #b91c1c; } .btn-danger:hover { background-color: #fecaca; color: #991b1b; }
         .btn-success { background-color: #dcfce7; color: #166534; } .btn-success:hover { background-color: #bbf7d0; }
         .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.875rem; }
-        .tab { padding: 0.75rem 1rem; font-weight: 600; color: #4b5563; border-bottom: 3px solid transparent; }
-        .tab-active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
         .stats-filter-btn { padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 500; transition: all 0.2s; border: 1px solid transparent; }
         .stats-filter-btn.active { background-color: var(--primary-color); color: white; }
         .stats-filter-btn:not(.active) { background-color: #f3f4f6; color: #374151; }
@@ -196,109 +149,149 @@ $current_view = $_GET['view'] ?? 'dashboard';
         .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05); border: 1px solid #e5e7eb; }
         .hidden { display: none; }
         [x-cloak] { display: none !important; }
+
+        /* New Vertical Nav Styles */
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            color: #4b5563;
+            transition: all 0.2s;
+            border-left: 4px solid transparent;
+        }
+        .sidebar-link:hover {
+            color: #1f2937;
+        }
+        .sidebar-link.active {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+        .sidebar-link i {
+            width: 1.5rem;
+            margin-right: 0.75rem;
+            text-align: center;
+        }
+        .sidebar-minimized .sidebar-link {
+            justify-content: center;
+        }
+         .sidebar-minimized .sidebar-link i {
+            margin-right: 0;
+        }
+        .sidebar-minimized .nav-text, .sidebar-minimized .settings-text, .sidebar-minimized .logout-text, .sidebar-minimized .admin-panel-text {
+            display: none;
+        }
+
     </style>
 </head>
-<body class="bg-gray-50">
-    <div class="container mx-auto p-4 md:p-6" x-data="adminManager()">
-        
-        <?php if ($category_to_manage !== null): ?>
-            <!-- Product Management View -->
-            <a href="admin.php?view=categories" class="inline-flex items-center gap-2 mb-6 text-gray-600 font-semibold hover:text-[var(--primary-color)] transition-colors">
-                <i class="fa-solid fa-arrow-left"></i> Back to Categories
-            </a>
-            <h1 class="text-3xl font-bold text-gray-800 mb-6">Manage Products: <span class="text-[var(--primary-color)]"><?= htmlspecialchars($category_to_manage['name']) ?></span></h1>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                <div class="lg:col-span-1 card p-6">
-                    <h2 class="text-xl font-bold text-gray-700 mb-4">Add New Product</h2>
-                    <form action="api.php" method="POST" enctype="multipart/form-data" class="space-y-4">
-                        <input type="hidden" name="action" value="add_product">
-                        <input type="hidden" name="category_name" value="<?= htmlspecialchars($category_to_manage['name']) ?>">
-                        <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Product Name</label><input type="text" name="name" class="form-input" required></div>
-                        <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Short Description</label><textarea name="description" class="form-textarea" rows="3" required></textarea></div>
-                        <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Long Description</label><textarea name="long_description" class="form-textarea" rows="5"></textarea><p class="text-xs text-gray-500 mt-1">Use **text** to make text bold.</p></div>
-                        <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Pricing Type</label><select id="pricing-type" class="form-select"><option value="single">Single Price</option><option value="multiple">Multiple Durations</option></select></div>
-                        <div id="single-price-container"><label class="block mb-1.5 font-medium text-gray-700 text-sm">Price (৳)</label><input type="number" name="price" step="0.01" class="form-input" value="0.00"></div>
-                        <div id="multiple-pricing-container" class="space-y-3 hidden"><label class="block font-medium text-gray-700 text-sm">Durations & Prices</label><div id="duration-fields"></div><button type="button" id="add-duration-btn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-plus"></i> Add Duration</button></div>
-                        <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Product Image</label><input type="file" name="image" class="form-input" accept="image/*"></div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Stock Status</label><select name="stock_out" class="form-select"><option value="false">In Stock</option><option value="true">Out of Stock</option></select></div>
-                            <div class="pt-7"><label class="flex items-center gap-2"><input type="checkbox" name="featured" id="featured" value="true" class="h-4 w-4 rounded border-gray-300 text-[var(--primary-color)] focus:ring-[var(--primary-color)]"> Featured?</label></div>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-full mt-2"><i class="fa-solid fa-circle-plus"></i>Add Product</button>
-                    </form>
-                </div>
+<body class="bg-gray-100">
+    <div class="flex h-screen" x-data="{ sidebarMinimized: false, ...adminManager() }" :class="{'sidebar-minimized': sidebarMinimized}">
+        <!-- Vertical Sidebar -->
+        <aside class="flex-shrink-0 bg-white border-r border-gray-200 flex flex-col transition-all duration-300" :class="sidebarMinimized ? 'w-20' : 'w-64'">
+            <div class="p-6 text-2xl font-bold text-[var(--primary-color)] border-b flex items-center justify-between">
+                <span class="admin-panel-text">Admin Panel</span>
+                <button @click="sidebarMinimized = !sidebarMinimized" class="btn btn-secondary btn-sm">
+                    <i class="fa-solid" :class="sidebarMinimized ? 'fa-arrow-right' : 'fa-arrow-left'"></i>
+                </button>
+            </div>
+            <nav class="flex-grow p-4 space-y-2">
+                <a href="admin.php?view=dashboard" class="sidebar-link <?= $current_view === 'dashboard' ? 'active' : '' ?>"><i class="fa-solid fa-table-columns"></i><span class="nav-text">Dashboard</span></a>
+                <a href="admin.php?view=categories" class="sidebar-link <?= $current_view === 'categories' ? 'active' : '' ?>"><i class="fa-solid fa-list"></i><span class="nav-text">Categories</span></a>
+                <a href="admin.php?view=hotdeals" class="sidebar-link <?= $current_view === 'hotdeals' ? 'active' : '' ?>"><i class="fa-solid fa-fire"></i><span class="nav-text">Hot Deals</span></a>
+                <a href="admin.php?view=orders" class="sidebar-link <?= $current_view === 'orders' ? 'active' : '' ?>"><i class="fa-solid fa-bag-shopping"></i><span class="nav-text">Orders</span> <?php if ($pending_orders_count > 0): ?><span class="nav-text ml-auto bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full px-2 py-0.5"><?= $pending_orders_count ?></span><?php endif; ?></a>
+                <a href="admin.php?view=reviews" class="sidebar-link <?= $current_view === 'reviews' ? 'active' : '' ?>"><i class="fa-solid fa-star"></i><span class="nav-text">Reviews</span> <span class="nav-text ml-auto bg-purple-100 text-purple-700 text-xs font-bold rounded-full px-2 py-0.5"><?= count($all_reviews) ?></span></a>
+                <a href="admin.php?view=profiles" class="sidebar-link <?= $current_view === 'profiles' ? 'active' : '' ?>"><i class="fa-solid fa-users"></i><span class="nav-text">Customer Profiles</span></a>
+                <a href="admin.php?view=coupons" class="sidebar-link <?= $current_view === 'coupons' ? 'active' : '' ?>"><i class="fa-solid fa-ticket"></i><span class="nav-text">Coupons</span></a>
+                <a href="admin.php?view=pages" class="sidebar-link <?= $current_view === 'pages' ? 'active' : '' ?>"><i class="fa-solid fa-file-alt"></i><span class="nav-text">Pages</span></a>
 
-                <div class="lg:col-span-2 card p-6">
-                    <h2 class="text-xl font-bold text-gray-700 mb-4">Existing Products</h2>
-                    <div class="space-y-3">
-                        <?php if (empty($category_to_manage['products'])): ?>
-                            <p class="text-gray-500 text-center py-10">No products found in this category.</p>
-                        <?php else: ?>
-                            <?php foreach ($category_to_manage['products'] as $product): ?>
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border flex-wrap gap-4">
-                                <div class="flex items-center gap-4 flex-grow">
-                                    <img src="<?= htmlspecialchars($product['image'] ? $product['image'] : 'https://via.placeholder.com/64/E9D5FF/5B21B6?text=N/A') ?>" class="w-16 h-16 object-cover rounded-md bg-gray-200">
-                                    <div>
-                                        <p class="font-semibold text-gray-800"><?= htmlspecialchars($product['name']) ?></p>
-                                        <p class="text-sm text-gray-600 font-semibold text-[var(--primary-color)]">৳<?= number_format($product['pricing'][0]['price'], 2) ?></p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-2 flex-shrink-0">
-                                    <a href="edit_product.php?category=<?= urlencode($category_to_manage['name']) ?>&id=<?= $product['id'] ?>" class="btn btn-secondary btn-sm"><i class="fa-solid fa-pencil"></i> Edit</a>
-                                    <form action="api.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this product?');">
-                                        <input type="hidden" name="action" value="delete_product">
-                                        <input type="hidden" name="category_name" value="<?= htmlspecialchars($category_to_manage['name']) ?>">
-                                        <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
-                                        <button type="submit" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i></button>
-                                    </form>
-                                </div>
-                            </div>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                <div class="pt-4 mt-4 border-t border-gray-200">
+                    <p class="px-4 text-xs font-semibold text-gray-400 uppercase settings-text">Settings</p>
+                    <div class="mt-2 space-y-2">
+                        <a href="admin.php?view=settings_general" class="sidebar-link <?= $current_view === 'settings_general' ? 'active' : '' ?>"><i class="fa-solid fa-sliders"></i><span class="nav-text">General</span></a>
+                        <a href="admin.php?view=settings_homepage" class="sidebar-link <?= $current_view === 'settings_homepage' ? 'active' : '' ?>"><i class="fa-solid fa-house"></i><span class="nav-text">Homepage</span></a>
+                        <a href="admin.php?view=settings_payment" class="sidebar-link <?= $current_view === 'settings_payment' ? 'active' : '' ?>"><i class="fa-solid fa-credit-card"></i><span class="nav-text">Payment</span></a>
+                        <a href="admin.php?view=settings_contact" class="sidebar-link <?= $current_view === 'settings_contact' ? 'active' : '' ?>"><i class="fa-solid fa-address-book"></i><span class="nav-text">Contact & Email</span></a>
+                        <a href="admin.php?view=settings_security" class="sidebar-link <?= $current_view === 'settings_security' ? 'active' : '' ?>"><i class="fa-solid fa-shield-halved"></i><span class="nav-text">Security</span></a>
                     </div>
                 </div>
+            </nav>
+            <div class="p-4 border-t">
+                <a href="logout.php" class="btn btn-secondary w-full"><i class="fa-solid fa-right-from-bracket"></i> <span class="logout-text">Logout</span></a>
             </div>
+        </aside>
 
-        <?php else: ?>
-            <!-- Main Dashboard View -->
-            <header class="flex justify-between items-center mb-6">
-                <h1 class="text-3xl font-bold text-gray-800">Admin Dashboard</h1>
-                <a href="logout.php" class="btn btn-secondary"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
-            </header>
-            <div class="card">
-                <div class="border-b border-gray-200">
-                    <nav class="-mb-px flex gap-4 px-6 overflow-x-auto">
-                        <a href="admin.php?view=dashboard" class="tab flex-shrink-0 <?= $current_view === 'dashboard' ? 'tab-active' : '' ?>"><i class="fa-solid fa-table-columns mr-2"></i>Dashboard</a>
-                        <a href="admin.php?view=categories" class="tab flex-shrink-0 <?= $current_view === 'categories' ? 'tab-active' : '' ?>"><i class="fa-solid fa-list mr-2"></i>Categories</a>
-                        <a href="admin.php?view=hotdeals" class="tab flex-shrink-0 <?= $current_view === 'hotdeals' ? 'tab-active' : '' ?>"><i class="fa-solid fa-fire mr-2"></i>Hot Deals</a>
-                        <a href="admin.php?view=orders" class="tab flex-shrink-0 <?= $current_view === 'orders' ? 'tab-active' : '' ?>"><i class="fa-solid fa-bag-shopping mr-2"></i>Orders <?php if ($pending_orders_count > 0): ?><span class="ml-2 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full px-2 py-0.5"><?= $pending_orders_count ?></span><?php endif; ?></a>
-                        <a href="admin.php?view=profiles" class="tab flex-shrink-0 <?= $current_view === 'profiles' ? 'tab-active' : '' ?>"><i class="fa-solid fa-users mr-2"></i>Customer Profiles <span class="ml-2 bg-blue-100 text-blue-700 text-xs font-bold rounded-full px-2 py-0.5"><?= count($all_customer_profiles_raw) ?></span></a>
-                        <a href="admin.php?view=reviews" class="tab flex-shrink-0 <?= $current_view === 'reviews' ? 'tab-active' : '' ?>"><i class="fa-solid fa-star mr-2"></i>Reviews <span class="ml-2 bg-purple-100 text-purple-700 text-xs font-bold rounded-full px-2 py-0.5"><?= count($all_reviews) ?></span></a>
-                        <a href="admin.php?view=pages" class="tab flex-shrink-0 <?= $current_view === 'pages' ? 'tab-active' : '' ?>"><i class="fa-solid fa-file-alt mr-2"></i>Pages</a>
-                        <a href="admin.php?view=settings" class="tab flex-shrink-0 <?= $current_view === 'settings' ? 'tab-active' : '' ?>"><i class="fa-solid fa-gear mr-2"></i>Settings</a>
-                    </nav>
-                </div>
-                <!-- Dashboard (Stats & Coupon) View -->
-                <div id="view-dashboard" style="<?= $current_view === 'dashboard' ? '' : 'display:none;' ?>" class="p-6 space-y-8">
+        <!-- Main Content Area -->
+        <main class="flex-1 overflow-y-auto">
+            <div class="container mx-auto p-6">
+                <?php if ($category_to_manage !== null): ?>
+                    <!-- Product Management View -->
+                    <a href="admin.php?view=categories" class="inline-flex items-center gap-2 mb-6 text-gray-600 font-semibold hover:text-[var(--primary-color)] transition-colors">
+                        <i class="fa-solid fa-arrow-left"></i> Back to Categories
+                    </a>
+                    <h1 class="text-3xl font-bold text-gray-800 mb-6">Manage Products: <span class="text-[var(--primary-color)]"><?= htmlspecialchars($category_to_manage['name']) ?></span></h1>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                        <div class="lg:col-span-1 card p-6">
+                            <h2 class="text-xl font-bold text-gray-700 mb-4">Add New Product</h2>
+                            <form action="api.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+                                <input type="hidden" name="action" value="add_product">
+                                <input type="hidden" name="category_name" value="<?= htmlspecialchars($category_to_manage['name']) ?>">
+                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Product Name</label><input type="text" name="name" class="form-input" required></div>
+                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Short Description</label><textarea name="description" class="form-textarea" rows="3" required></textarea></div>
+                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Long Description</label><textarea name="long_description" class="form-textarea" rows="5"></textarea><p class="text-xs text-gray-500 mt-1">Use **text** to make text bold.</p></div>
+                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Pricing Type</label><select id="pricing-type" class="form-select"><option value="single">Single Price</option><option value="multiple">Multiple Durations</option></select></div>
+                                <div id="single-price-container"><label class="block mb-1.5 font-medium text-gray-700 text-sm">Price (৳)</label><input type="number" name="price" step="0.01" class="form-input" value="0.00"></div>
+                                <div id="multiple-pricing-container" class="space-y-3 hidden"><label class="block font-medium text-gray-700 text-sm">Durations & Prices</label><div id="duration-fields"></div><button type="button" id="add-duration-btn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-plus"></i> Add Duration</button></div>
+                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Product Image</label><input type="file" name="image" class="form-input" accept="image/*"></div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Stock Status</label><select name="stock_out" class="form-select"><option value="false">In Stock</option><option value="true">Out of Stock</option></select></div>
+                                    <div class="pt-7"><label class="flex items-center gap-2"><input type="checkbox" name="featured" id="featured" value="true" class="h-4 w-4 rounded border-gray-300 text-[var(--primary-color)] focus:ring-[var(--primary-color)]"> Featured?</label></div>
+                                </div>
+                                <button type="submit" class="btn btn-primary w-full mt-2"><i class="fa-solid fa-circle-plus"></i>Add Product</button>
+                            </form>
+                        </div>
+
+                        <div class="lg:col-span-2 card p-6">
+                            <h2 class="text-xl font-bold text-gray-700 mb-4">Existing Products</h2>
+                            <div class="space-y-3">
+                                <?php if (empty($category_to_manage['products'])): ?>
+                                    <p class="text-gray-500 text-center py-10">No products found in this category.</p>
+                                <?php else: ?>
+                                    <?php foreach ($category_to_manage['products'] as $product): ?>
+                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border flex-wrap gap-4">
+                                        <div class="flex items-center gap-4 flex-grow">
+                                            <img src="<?= htmlspecialchars($product['image'] ? $product['image'] : 'https://via.placeholder.com/64/E9D5FF/5B21B6?text=N/A') ?>" class="w-16 h-16 object-cover rounded-md bg-gray-200">
+                                            <div>
+                                                <p class="font-semibold text-gray-800"><?= htmlspecialchars($product['name']) ?></p>
+                                                <p class="text-sm text-gray-600 font-semibold text-[var(--primary-color)]">৳<?= number_format($product['pricing'][0]['price'], 2) ?></p>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2 flex-shrink-0">
+                                            <a href="edit_product.php?category=<?= urlencode($category_to_manage['name']) ?>&id=<?= $product['id'] ?>" class="btn btn-secondary btn-sm"><i class="fa-solid fa-pencil"></i> Edit</a>
+                                            <form action="api.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this product?');">
+                                                <input type="hidden" name="action" value="delete_product">
+                                                <input type="hidden" name="category_name" value="<?= htmlspecialchars($category_to_manage['name']) ?>">
+                                                <input type="hidden" name="product_id" value="<?= $product['id'] ?>">
+                                                <button type="submit" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i></button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+
+                <?php else: ?>
+                    <!-- Main Content Views -->
+                    <div id="view-dashboard" style="<?= $current_view === 'dashboard' ? '' : 'display:none;' ?>" class="space-y-8">
+                        <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
                     <div>
                         <div class="flex flex-wrap gap-2 mb-4" id="stats-filter-container">
                             <button class="stats-filter-btn" data-period="today">Today</button><button class="stats-filter-btn" data-period="7days">7 Days</button><button class="stats-filter-btn" data-period="30days">30 Days</button><button class="stats-filter-btn" data-period="6months">6 Months</button><button class="stats-filter-btn active" data-period="all">All Time</button>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4" id="stats-display-container"></div>
-                    </div>
-                    <div>
-                        <h2 class="text-xl font-bold text-gray-700 mb-4">Manage Coupons</h2>
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                            <div class="bg-gray-50 p-6 rounded-lg border">
-                                <h3 class="text-lg font-semibold mb-4">Add New Coupon</h3>
-                                <form action="api.php" method="POST" class="space-y-4"><input type="hidden" name="action" value="add_coupon"><div><label class="block mb-1.5 text-sm font-medium text-gray-700">Coupon Code</label><input type="text" name="code" class="form-input uppercase" placeholder="e.g., SALE20" required></div><div><label class="block mb-1.5 text-sm font-medium text-gray-700">Discount (%)</label><input type="number" name="discount_percentage" class="form-input" placeholder="e.g., 20" required min="1" max="100"></div><div><label class="block mb-1.5 text-sm font-medium text-gray-700">Coupon Scope</label><select name="scope" id="coupon_scope" class="form-select"><option value="all_products">All Products</option><option value="category">Specific Category</option><option value="single_product">Single Product</option></select></div><div id="scope_category_container" class="hidden"><label class="block mb-1.5 text-sm font-medium text-gray-700">Select Category</label><select name="scope_value_category" class="form-select"><?php foreach($all_products_data as $cat): ?><option value="<?= htmlspecialchars($cat['name']) ?>"><?= htmlspecialchars($cat['name']) ?></option><?php endforeach; ?></select></div><div id="scope_product_container" class="hidden"><label class="block mb-1.5 text-sm font-medium text-gray-700">Select Product</label><select name="scope_value_product" class="form-select"><?php foreach($all_products_for_js as $prod): ?><option value="<?= htmlspecialchars($prod['id']) ?>"><?= htmlspecialchars($prod['name']) ?></option><?php endforeach; ?></select></div><div class="flex items-center gap-2 pt-2"><input type="checkbox" name="is_active" id="is_active" value="true" checked class="h-4 w-4 rounded border-gray-300 text-[var(--primary-color)] focus:ring-[var(--primary-color)]"><label for="is_active" class="text-sm font-medium text-gray-700">Activate Coupon</label></div><div><button type="submit" class="btn btn-primary"><i class="fa-solid fa-circle-plus"></i>Add Coupon</button></div></form>
-                            </div>
-                            <div class="bg-gray-50 p-6 rounded-lg border">
-                                <h3 class="text-lg font-semibold mb-4">Existing Coupons</h3>
-                                <div class="space-y-3 max-h-[25rem] overflow-y-auto pr-2"><?php if (empty($all_coupons_data)): ?><p class="text-gray-500 text-center py-4">No coupons found.</p><?php else: ?><?php foreach ($all_coupons_data as $coupon): ?><div class="flex items-center justify-between p-3 bg-white rounded-lg border flex-wrap"><div><p class="font-bold text-base uppercase"><?= htmlspecialchars($coupon['code']) ?> <span class="ml-2 text-sm font-normal text-gray-500"><?= htmlspecialchars($coupon['discount_percentage']) ?>% Off</span></p><?php $scope_display_value = $coupon['scope_value'] ?? ''; if (($coupon['scope'] ?? 'all_products') === 'single_product' && !empty($scope_display_value)) { foreach ($all_products_for_js as $p) { if ($p['id'] == $scope_display_value) { $scope_display_value = $p['name']; break; } } } ?><p class="text-xs text-blue-600 font-semibold mt-1">Scope: <?= htmlspecialchars(ucwords(str_replace('_', ' ', $coupon['scope'] ?? 'all_products'))) ?><?php if(!empty($coupon['scope_value'])): ?> (<?= htmlspecialchars($scope_display_value) ?>)<?php endif; ?></p></div><div class="flex items-center gap-3"><span class="text-sm font-bold py-0.5 px-2 rounded-full <?= $coupon['is_active'] ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' ?>"><?= $coupon['is_active'] ? 'Active' : 'Inactive' ?></span><form action="api.php" method="POST" onsubmit="return confirm('Are you sure?');"><input type="hidden" name="action" value="delete_coupon"><input type="hidden" name="coupon_id" value="<?= $coupon['id'] ?>"><button type="submit" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i></button></form></div></div><?php endforeach; ?><?php endif; ?></div>
-                            </div>
-                        </div>
                     </div>
                 </div>
                 <!-- Category Management View -->
@@ -425,33 +418,38 @@ $current_view = $_GET['view'] ?? 'dashboard';
                                             </template>
                                             <p class="font-bold text-base mt-1"><strong>Total:</strong> <span x-text="'৳' + order.totals.total.toFixed(2)"></span></p>
                                             
-                                            <div class="mt-4 flex gap-2 flex-wrap">
-                                                <template x-if="order.status === 'Pending'">
+                                            <template x-if="order.status === 'Pending'">
+                                                <div class="mt-4 flex gap-2">
                                                     <form action="api.php" method="POST"><input type="hidden" name="action" value="update_order_status"><input type="hidden" name="order_id" :value="order.order_id"><input type="hidden" name="new_status" value="Confirmed"><button type="submit" class="btn btn-success btn-sm">Confirm</button></form>
                                                     <form action="api.php" method="POST"><input type="hidden" name="action" value="update_order_status"><input type="hidden" name="order_id" :value="order.order_id"><input type="hidden" name="new_status" value="Cancelled"><button type="submit" class="btn btn-danger btn-sm">Cancel</button></form>
-                                                </template>
-                                                <template x-if="order.status === 'Confirmed'">
-                                                    <div class="pt-2 w-full">
-                                                        <template x-if="!order.access_email_sent">
-                                                            <button @click="openModal(order.order_id, order.customer.email)" class="btn btn-primary btn-sm w-full">
-                                                                <i class="fa-solid fa-paper-plane"></i> Send Access Details
-                                                            </button>
-                                                        </template>
-                                                        <template x-if="order.access_email_sent">
-                                                            <div class="flex items-center justify-center gap-2 text-green-600 font-semibold bg-green-50 p-2 rounded-md text-sm">
-                                                                <i class="fa-solid fa-check-circle"></i>
-                                                                <span>Access Sent</span>
-                                                            </div>
-                                                        </template>
-                                                    </div>
-                                                </template>
-                                                <form action="api.php" method="POST" onsubmit="return confirm('Add or update this customer profile?');">
-                                                    <input type="hidden" name="action" value="add_customer_profile">
-                                                    <input type="hidden" name="order_id" :value="order.order_id">
-                                                    <button type="submit" class="btn btn-secondary btn-sm"><i class="fa-solid fa-user-plus"></i> Add to Profiles</button>
-                                                </form>
-                                            </div>
-
+                                                </div>
+                                            </template>
+                                            <template x-if="order.status === 'Confirmed'">
+                                                <div class="mt-4 flex gap-2">
+                                                    <form action="api.php" method="POST">
+                                                        <input type="hidden" name="action" value="add_customer_from_order">
+                                                        <input type="hidden" name="order_id" :value="order.order_id">
+                                                        <button type="submit" class="btn btn-primary btn-sm">
+                                                            <i class="fa-solid fa-user-plus"></i> Add to Customers
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </template>
+                                            <template x-if="order.status === 'Confirmed'">
+                                                <div class="mt-4 pt-4 border-t">
+                                                    <template x-if="!order.access_email_sent">
+                                                        <button @click="openModal(order.order_id, order.customer.email)" class="btn btn-primary btn-sm w-full">
+                                                            <i class="fa-solid fa-paper-plane"></i> Send Access Details
+                                                        </button>
+                                                    </template>
+                                                    <template x-if="order.access_email_sent">
+                                                        <div class="flex items-center justify-center gap-2 text-green-600 font-semibold bg-green-50 p-2 rounded-md text-sm">
+                                                            <i class="fa-solid fa-check-circle"></i>
+                                                            <span>Access Sent</span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </template>
                                         </div>
                                     </div>
                                 </div>
@@ -464,99 +462,10 @@ $current_view = $_GET['view'] ?? 'dashboard';
                         <button @click="nextPage" :disabled="currentPage === totalPages" class="btn btn-secondary" :class="{'opacity-50 cursor-not-allowed': currentPage === totalPages}">Next <i class="fa-solid fa-chevron-right"></i></button>
                     </div>
                 </div>
-
-                <!-- Customer Profiles View -->
-                <div id="view-profiles" style="<?= $current_view === 'profiles' ? '' : 'display:none;' ?>" class="p-6">
-                    <div class="mb-8">
-                        <h2 class="text-xl font-bold text-gray-700 mb-3">Renewals Due (Expired or within 7 days)</h2>
-                         <?php if (empty($profiles_due_renewal)): ?>
-                            <p class="text-gray-500 text-center py-6 bg-gray-50 rounded-lg border">No profiles are due for renewal soon.</p>
-                        <?php else: ?>
-                            <div class="space-y-4">
-                                <?php foreach($profiles_due_renewal as $profile):
-                                    $is_past_due = (new DateTime()) > $profile['expiry_date'];
-                                ?>
-                                <div class="bg-white border-2 <?= $is_past_due ? 'border-red-200' : 'border-yellow-200' ?> rounded-lg p-4">
-                                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
-                                        <div>
-                                            <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Customer</h4>
-                                            <p><strong>Name:</strong> <?= htmlspecialchars($profile['customer']['name']) ?></p>
-                                            <p><strong>Phone:</strong> <?= htmlspecialchars($profile['customer']['phone']) ?></p>
-                                            <p><strong>Email:</strong> <?= htmlspecialchars($profile['customer']['email']) ?></p>
-                                        </div>
-                                        <div>
-                                             <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Last Purchase</h4>
-                                            <p class="font-medium"><?= htmlspecialchars($profile['items'][0]['name']) ?> (<?= htmlspecialchars($profile['items'][0]['pricing']['duration']) ?>)</p>
-                                            <p class="font-bold text-base flex items-center gap-2 mt-1">
-                                                <span class="h-3 w-3 rounded-full <?= $is_past_due ? 'bg-red-500' : 'bg-yellow-400' ?>"></span>
-                                                Expires: <?= $profile['expiry_date'] ? $profile['expiry_date']->format('d M, Y') : 'N/A' ?>
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Actions</h4>
-                                            <div class="flex flex-col sm:flex-row gap-2 items-start">
-                                                <?php $phone = preg_replace('/^0/', '880', $profile['customer']['phone']); ?>
-                                                <a href="https://wa.me/<?= htmlspecialchars($phone) ?>" target="_blank" class="btn btn-success btn-sm w-full sm:w-auto"><i class="fab fa-whatsapp"></i> Message</a>
-                                                <form action="api.php" method="POST" onsubmit="return confirm('Are you sure?');" class="w-full sm:w-auto">
-                                                    <input type="hidden" name="action" value="delete_customer_profile">
-                                                    <input type="hidden" name="profile_id" value="<?= htmlspecialchars($profile['id']) ?>">
-                                                    <button type="submit" class="btn btn-danger btn-sm w-full"><i class="fa-solid fa-trash-can"></i> Delete</button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-
-                    <div>
-                        <h2 class="text-xl font-bold text-gray-700 mb-4">All Profiles</h2>
-                        <?php if (empty($other_profiles)): ?>
-                            <p class="text-gray-500 text-center py-10 bg-gray-50 rounded-lg border">No other customer profiles found.</p>
-                        <?php else: ?>
-                            <div class="space-y-4">
-                                <?php foreach($other_profiles as $profile): ?>
-                                <div class="bg-white border rounded-lg p-4">
-                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
-                                        <div>
-                                            <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Customer</h4>
-                                            <p><strong>Name:</strong> <?= htmlspecialchars($profile['customer']['name']) ?></p>
-                                            <p><strong>Phone:</strong> <?= htmlspecialchars($profile['customer']['phone']) ?></p>
-                                            <p><strong>Email:</strong> <?= htmlspecialchars($profile['customer']['email']) ?></p>
-                                        </div>
-                                        <div>
-                                             <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Last Purchase</h4>
-                                            <p class="font-medium"><?= htmlspecialchars($profile['items'][0]['name']) ?> (<?= htmlspecialchars($profile['items'][0]['pricing']['duration']) ?>)</p>
-                                            <p class="font-bold text-base flex items-center gap-2 mt-1">
-                                                <span class="h-3 w-3 rounded-full bg-green-500"></span>
-                                                Expires: <?= $profile['expiry_date'] ? $profile['expiry_date']->format('d M, Y') : 'N/A' ?>
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <h4 class="font-semibold mb-2 text-gray-500 uppercase text-xs tracking-wider">Actions</h4>
-                                            <div class="flex flex-col sm:flex-row gap-2 items-start">
-                                                <?php $phone = preg_replace('/^0/', '880', $profile['customer']['phone']); ?>
-                                                <a href="https://wa.me/<?= htmlspecialchars($phone) ?>" target="_blank" class="btn btn-success btn-sm w-full sm:w-auto"><i class="fab fa-whatsapp"></i> Message</a>
-                                                <form action="api.php" method="POST" onsubmit="return confirm('Are you sure?');" class="w-full sm:w-auto">
-                                                    <input type="hidden" name="action" value="delete_customer_profile">
-                                                    <input type="hidden" name="profile_id" value="<?= htmlspecialchars($profile['id']) ?>">
-                                                    <button type="submit" class="btn btn-danger btn-sm w-full"><i class="fa-solid fa-trash-can"></i> Delete</button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
-
                 <!-- Review Management View -->
                 <div id="view-reviews" style="<?= $current_view === 'reviews' ? '' : 'display:none;' ?>" class="p-6"><h2 class="text-xl font-bold text-gray-700 mb-4">Manage All Reviews</h2><?php if(empty($all_reviews)): ?><p class="text-gray-500 text-center py-10">There are no reviews on the website yet.</p><?php else: ?><div class="space-y-4"><?php foreach($all_reviews as $review): ?><div class="bg-gray-50 border rounded-lg p-4 flex flex-col md:flex-row gap-4 justify-between items-start"><div class="flex-grow"><p class="font-semibold text-gray-800"><?= htmlspecialchars($review['name']) ?> <span class="text-yellow-500 ml-2"><?= str_repeat('★', $review['rating']) . str_repeat('☆', 5 - $review['rating']) ?></span></p><p class="text-sm text-gray-500">For: <strong><?= htmlspecialchars($review['product_name']) ?></strong></p><p class="mt-2 text-gray-700">"<?= nl2br(htmlspecialchars($review['comment'])) ?>"</p></div><div class="flex-shrink-0 flex items-center gap-2 mt-2 md:mt-0"><form action="api.php" method="POST" onsubmit="return confirm('Are you sure?');"><input type="hidden" name="action" value="update_review_status"><input type="hidden" name="product_id" value="<?= $review['product_id'] ?>"><input type="hidden" name="review_id" value="<?= $review['id'] ?>"><input type="hidden" name="new_status" value="deleted"><button type="submit" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i> Delete</button></form></div></div><?php endforeach; ?></div><?php endif; ?></div>
+
+                <?php include 'views/customers.php'; ?>
 
                 <!-- Page Content Management View -->
                 <div id="view-pages" style="<?= $current_view === 'pages' ? '' : 'display:none;' ?>" class="p-6">
@@ -599,209 +508,193 @@ $current_view = $_GET['view'] ?? 'dashboard';
                 </div>
 
                 <!-- Settings View -->
-                <div id="view-settings" style="<?= $current_view === 'settings' ? '' : 'display:none;' ?>" class="p-6 space-y-8 max-w-5xl mx-auto">
-                    <!-- Site Identity -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <form action="api.php" method="POST" enctype="multipart/form-data" class="bg-white p-6 rounded-lg border">
-                            <input type="hidden" name="action" value="update_site_logo">
-                            <h3 class="text-lg font-semibold mb-4 text-gray-800">Site Logo</h3>
-                            <?php if (!empty($site_config['site_logo']) && file_exists($site_config['site_logo'])): ?>
-                                <div class="mb-4">
-                                    <p class="text-sm font-medium text-gray-600 mb-2">Current Logo:</p>
-                                    <img src="<?= htmlspecialchars($site_config['site_logo']) ?>" class="h-10 bg-gray-200 p-1 rounded-md border shadow-sm">
-                                    <div class="flex items-center gap-2 mt-3">
-                                        <input type="checkbox" name="delete_site_logo" id="delete_site_logo" value="true" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
-                                        <label for="delete_site_logo" class="text-sm text-red-600 font-medium">Delete current logo</label>
-                                    </div>
+                    <div id="view-coupons" style="<?= $current_view === 'coupons' ? '' : 'display:none;' ?>" class="space-y-8">
+                        <h1 class="text-3xl font-bold text-gray-800">Coupons</h1>
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-700 mb-4">Manage Coupons</h2>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                                <div class="bg-gray-50 p-6 rounded-lg border">
+                                    <h3 class="text-lg font-semibold mb-4">Add New Coupon</h3>
+                                    <form action="api.php" method="POST" class="space-y-4"><input type="hidden" name="action" value="add_coupon"><div><label class="block mb-1.5 text-sm font-medium text-gray-700">Coupon Code</label><input type="text" name="code" class="form-input uppercase" placeholder="e.g., SALE20" required></div><div><label class="block mb-1.5 text-sm font-medium text-gray-700">Discount (%)</label><input type="number" name="discount_percentage" class="form-input" placeholder="e.g., 20" required min="1" max="100"></div><div><label class="block mb-1.5 text-sm font-medium text-gray-700">Coupon Scope</label><select name="scope" id="coupon_scope" class="form-select"><option value="all_products">All Products</option><option value="category">Specific Category</option><option value="single_product">Single Product</option></select></div><div id="scope_category_container" class="hidden"><label class="block mb-1.5 text-sm font-medium text-gray-700">Select Category</label><select name="scope_value_category" class="form-select"><?php foreach($all_products_data as $cat): ?><option value="<?= htmlspecialchars($cat['name']) ?>"><?= htmlspecialchars($cat['name']) ?></option><?php endforeach; ?></select></div><div id="scope_product_container" class="hidden"><label class="block mb-1.5 text-sm font-medium text-gray-700">Select Product</label><select name="scope_value_product" class="form-select"><?php foreach($all_products_for_js as $prod): ?><option value="<?= htmlspecialchars($prod['id']) ?>"><?= htmlspecialchars($prod['name']) ?></option><?php endforeach; ?></select></div><div class="flex items-center gap-2 pt-2"><input type="checkbox" name="is_active" id="is_active" value="true" checked class="h-4 w-4 rounded border-gray-300 text-[var(--primary-color)] focus:ring-[var(--primary-color)]"><label for="is_active" class="text-sm font-medium text-gray-700">Activate Coupon</label></div><div><button type="submit" class="btn btn-primary"><i class="fa-solid fa-circle-plus"></i>Add Coupon</button></div></form>
                                 </div>
-                            <?php endif; ?>
-                            <div>
-                                <label class="block mb-1.5 font-medium text-gray-700 text-sm">Upload New Logo</label>
-                                <input type="file" name="site_logo" class="form-input" accept="image/*">
-                            </div>
-                            <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Logo</button>
-                        </form>
-                        <form action="api.php" method="POST" enctype="multipart/form-data" class="bg-white p-6 rounded-lg border">
-                            <input type="hidden" name="action" value="update_favicon">
-                            <h3 class="text-lg font-semibold mb-4 text-gray-800">Site Favicon</h3>
-                             <?php if (!empty($site_config['favicon']) && file_exists($site_config['favicon'])): ?>
-                                <div class="mb-4">
-                                    <p class="text-sm font-medium text-gray-600 mb-2">Current Favicon:</p>
-                                    <img src="<?= htmlspecialchars($site_config['favicon']) ?>" class="h-10 w-10 rounded-md border shadow-sm">
-                                    <div class="flex items-center gap-2 mt-3">
-                                        <input type="checkbox" name="delete_favicon" id="delete_favicon" value="true" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
-                                        <label for="delete_favicon" class="text-sm text-red-600 font-medium">Delete current favicon</label>
-                                    </div>
+                                <div class="bg-gray-50 p-6 rounded-lg border">
+                                    <h3 class="text-lg font-semibold mb-4">Existing Coupons</h3>
+                                    <div class="space-y-3 max-h-[25rem] overflow-y-auto pr-2"><?php if (empty($all_coupons_data)): ?><p class="text-gray-500 text-center py-4">No coupons found.</p><?php else: ?><?php foreach ($all_coupons_data as $coupon): ?><div class="flex items-center justify-between p-3 bg-white rounded-lg border flex-wrap"><div><p class="font-bold text-base uppercase"><?= htmlspecialchars($coupon['code']) ?> <span class="ml-2 text-sm font-normal text-gray-500"><?= htmlspecialchars($coupon['discount_percentage']) ?>% Off</span></p><?php $scope_display_value = $coupon['scope_value'] ?? ''; if (($coupon['scope'] ?? 'all_products') === 'single_product' && !empty($scope_display_value)) { foreach ($all_products_for_js as $p) { if ($p['id'] == $scope_display_value) { $scope_display_value = $p['name']; break; } } } ?><p class="text-xs text-blue-600 font-semibold mt-1">Scope: <?= htmlspecialchars(ucwords(str_replace('_', ' ', $coupon['scope'] ?? 'all_products'))) ?><?php if(!empty($coupon['scope_value'])): ?> (<?= htmlspecialchars($scope_display_value) ?>)<?php endif; ?></p></div><div class="flex items-center gap-3"><span class="text-sm font-bold py-0.5 px-2 rounded-full <?= $coupon['is_active'] ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' ?>"><?= $coupon['is_active'] ? 'Active' : 'Inactive' ?></span><form action="api.php" method="POST" onsubmit="return confirm('Are you sure?');"><input type="hidden" name="action" value="delete_coupon"><input type="hidden" name="coupon_id" value="<?= $coupon['id'] ?>"><button type="submit" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i></button></form></div></div><?php endforeach; ?><?php endif; ?></div>
                                 </div>
-                            <?php endif; ?>
-                            <div>
-                                <label class="block mb-1.5 font-medium text-gray-700 text-sm">Upload New Favicon (.png, .ico)</label>
-                                <input type="file" name="favicon" class="form-input" accept="image/png, image/x-icon">
                             </div>
-                            <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Favicon</button>
-                        </form>
+                        </div>
                     </div>
-
-                    <!-- Hero Banner Section -->
-                    <div class="bg-white p-6 rounded-lg border">
-                        <form action="api.php" method="POST" enctype="multipart/form-data">
-                            <input type="hidden" name="action" value="update_hero_banner">
-                            <h3 class="text-lg font-semibold mb-2 text-gray-800">Hero Section Banners (Slider)</h3>
-                            <p class="text-sm text-gray-600 mb-4">You can upload up to 10 images for the homepage slider.</p>
-                             <div class="mb-6">
-                                <label for="hero_slider_interval" class="block mb-1.5 font-medium text-gray-700 text-sm">Slider Interval (in seconds)</label>
-                                <input type="number" id="hero_slider_interval" name="hero_slider_interval" class="form-input max-w-xs" value="<?= htmlspecialchars(($site_config['hero_slider_interval'] ?? 5000) / 1000) ?>" placeholder="e.g., 5">
-                            </div>
-                            <div class="space-y-6">
-                                <?php
-                                $current_banners = $site_config['hero_banner'] ?? [];
-                                for ($i = 0; $i < 10; $i++):
-                                    $banner_path = $current_banners[$i] ?? null;
-                                ?>
-                                <div class="p-4 border rounded-md bg-gray-50">
-                                    <label class="block font-medium text-gray-700 text-sm mb-2">Slider Image #<?= $i + 1 ?></label>
-                                    <?php if ($banner_path && file_exists($banner_path)): ?>
-                                        <div class="mb-2">
-                                            <img src="<?= htmlspecialchars($banner_path) ?>" class="max-h-24 rounded border">
-                                            <div class="flex items-center gap-2 mt-2">
-                                                <input type="checkbox" name="delete_hero_banners[<?= $i ?>]" id="delete_banner_<?= $i ?>" value="true" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
-                                                <label for="delete_banner_<?= $i ?>" class="text-sm text-red-600 font-medium">Delete this image</label>
+                    <div id="view-settings_general" style="<?= $current_view === 'settings_general' ? '' : 'display:none;' ?>">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-6">General Settings</h1>
+                        <div class="space-y-8 max-w-5xl mx-auto">
+                            <div class="space-y-8">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <form action="api.php" method="POST" enctype="multipart/form-data" class="bg-white p-6 rounded-lg border">
+                                    <input type="hidden" name="action" value="update_site_logo">
+                                    <h3 class="text-lg font-semibold mb-4 text-gray-800">Site Logo</h3>
+                                    <?php if (!empty($site_config['site_logo']) && file_exists($site_config['site_logo'])): ?>
+                                        <div class="mb-4">
+                                            <p class="text-sm font-medium text-gray-600 mb-2">Current Logo:</p>
+                                            <img src="<?= htmlspecialchars($site_config['site_logo']) ?>" class="h-10 bg-gray-200 p-1 rounded-md border shadow-sm">
+                                            <div class="flex items-center gap-2 mt-3">
+                                                <input type="checkbox" name="delete_site_logo" id="delete_site_logo" value="true" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
+                                                <label for="delete_site_logo" class="text-sm text-red-600 font-medium">Delete current logo</label>
                                             </div>
                                         </div>
                                     <?php endif; ?>
-                                    <input type="file" name="hero_banners[<?= $i ?>]" class="form-input text-sm" accept="image/*">
-                                    <p class="text-xs text-gray-500 mt-1">Uploading an image here will replace the existing one for this slot.</p>
-                                </div>
-                                <?php endfor; ?>
+                                    <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Upload New Logo</label><input type="file" name="site_logo" class="form-input" accept="image/*"></div>
+                                    <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Logo</button>
+                                </form>
+                                <form action="api.php" method="POST" enctype="multipart/form-data" class="bg-white p-6 rounded-lg border">
+                                    <input type="hidden" name="action" value="update_favicon">
+                                    <h3 class="text-lg font-semibold mb-4 text-gray-800">Site Favicon</h3>
+                                    <?php if (!empty($site_config['favicon']) && file_exists($site_config['favicon'])): ?>
+                                        <div class="mb-4">
+                                            <p class="text-sm font-medium text-gray-600 mb-2">Current Favicon:</p>
+                                            <img src="<?= htmlspecialchars($site_config['favicon']) ?>" class="h-10 w-10 rounded-md border shadow-sm">
+                                            <div class="flex items-center gap-2 mt-3">
+                                                <input type="checkbox" name="delete_favicon" id="delete_favicon" value="true" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
+                                                <label for="delete_favicon" class="text-sm text-red-600 font-medium">Delete current favicon</label>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                    <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Upload New Favicon (.png, .ico)</label><input type="file" name="favicon" class="form-input" accept="image/png, image/x-icon"></div>
+                                    <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Favicon</button>
+                                </form>
                             </div>
-                            <button type="submit" class="btn btn-primary mt-6"><i class="fa-solid fa-floppy-disk"></i> Save Banner Settings</button>
-                        </form>
+                        </div>
+
+                        </div>
+                    </div>
+                    <div id="view-settings_homepage" style="<?= $current_view === 'settings_homepage' ? '' : 'display:none;' ?>">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-6">Homepage Settings</h1>
+                        <div class="space-y-8 max-w-5xl mx-auto">
+                            <div class="bg-white p-6 rounded-lg border">
+                                <form action="api.php" method="POST" enctype="multipart/form-data">
+                                    <input type="hidden" name="action" value="update_hero_banner">
+                                    <h3 class="text-lg font-semibold mb-2 text-gray-800">Hero Section Banners (Slider)</h3>
+                                    <p class="text-sm text-gray-600 mb-4">You can upload up to 10 images for the homepage slider.</p>
+                                    <div class="mb-6"><label for="hero_slider_interval" class="block mb-1.5 font-medium text-gray-700 text-sm">Slider Interval (in seconds)</label><input type="number" id="hero_slider_interval" name="hero_slider_interval" class="form-input max-w-xs" value="<?= htmlspecialchars(($site_config['hero_slider_interval'] ?? 5000) / 1000) ?>" placeholder="e.g., 5"></div>
+                                    <div class="space-y-6">
+                                        <?php
+                                        $current_banners = $site_config['hero_banner'] ?? [];
+                                        for ($i = 0; $i < 10; $i++): $banner_path = $current_banners[$i] ?? null; ?>
+                                        <div class="p-4 border rounded-md bg-gray-50">
+                                            <label class="block font-medium text-gray-700 text-sm mb-2">Slider Image #<?= $i + 1 ?></label>
+                                            <?php if ($banner_path && file_exists($banner_path)): ?>
+                                                <div class="mb-2">
+                                                    <img src="<?= htmlspecialchars($banner_path) ?>" class="max-h-24 rounded border">
+                                                    <div class="flex items-center gap-2 mt-2"><input type="checkbox" name="delete_hero_banners[<?= $i ?>]" id="delete_banner_<?= $i ?>" value="true" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"><label for="delete_banner_<?= $i ?>" class="text-sm text-red-600 font-medium">Delete this image</label></div>
+                                                </div>
+                                            <?php endif; ?>
+                                            <input type="file" name="hero_banners[<?= $i ?>]" class="form-input text-sm" accept="image/*">
+                                            <p class="text-xs text-gray-500 mt-1">Uploading an image here will replace the existing one for this slot.</p>
+                                        </div>
+                                        <?php endfor; ?>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary mt-6"><i class="fa-solid fa-floppy-disk"></i> Save Banner Settings</button>
+                                </form>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                     <div id="view-settings_payment" style="<?= $current_view === 'settings_payment' ? '' : 'display:none;' ?>">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-6">Payment Settings</h1>
+                        <div class="space-y-8 max-w-5xl mx-auto">
+                            <div class="bg-white p-6 rounded-lg border">
+                                <h3 class="text-lg font-semibold mb-4 text-gray-800">Payment Gateway Settings</h3>
+                                <div class="space-y-6">
+                                    <?php
+                                    $payment_methods_config = $site_config['payment_methods'] ?? [];
+                                    foreach ($payment_methods_config as $method_name => $method_details):
+                                        $is_active = $method_details['is_active'] ?? false;
+                                        $is_default = $method_details['is_default'] ?? false;
+                                    ?>
+                                    <div class="p-4 border rounded-md bg-gray-50 flex flex-wrap items-center justify-between gap-4">
+                                        <div class="flex items-center gap-4">
+                                            <?php if (!empty($method_details['logo_url']) && file_exists($method_details['logo_url'])): ?><img src="<?= htmlspecialchars($method_details['logo_url']) ?>" class="h-16 w-16 border bg-white rounded-md object-contain"><?php endif; ?>
+                                            <div>
+                                                <h4 class="font-semibold text-gray-700"><?= htmlspecialchars($method_name) ?> <?php if($is_default): ?><span class="text-xs bg-gray-200 text-gray-600 font-bold px-2 py-0.5 rounded-full ml-2">Default</span><?php endif; ?></h4>
+                                                <p class="text-sm text-gray-500"><?= htmlspecialchars($method_details['number'] ?? $method_details['pay_id'] ?? $method_details['account_number'] ?? '') ?></p>
+                                                <span class="mt-2 inline-block text-sm font-bold py-0.5 px-2 rounded-full <?= $is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' ?>"><?= $is_active ? 'Active' : 'Inactive' ?></span>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2 flex-shrink-0">
+                                            <form action="api.php" method="POST"><input type="hidden" name="action" value="toggle_payment_method_status"><input type="hidden" name="method_name" value="<?= htmlspecialchars($method_name) ?>"><button type="submit" class="btn btn-secondary btn-sm"><?= $is_active ? 'Deactivate' : 'Activate' ?></button></form>
+                                            <button type="button" @click="openPaymentModal('<?= htmlspecialchars($method_name, ENT_QUOTES) ?>')" class="btn btn-secondary btn-sm"><i class="fa-solid fa-pencil"></i> Edit</button>
+                                            <?php if(!$is_default): ?><form action="api.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this payment method?');"><input type="hidden" name="action" value="delete_payment_method"><input type="hidden" name="method_name" value="<?= htmlspecialchars($method_name) ?>"><button type="submit" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i></button></form><?php endif; ?>
+                                        </div>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <hr class="my-6">
+                                <div class="bg-gray-50 p-6 rounded-lg border" x-data="{ type: 'number' }">
+                                    <h3 class="text-lg font-semibold mb-4 text-gray-800">Add New Payment Method</h3>
+                                    <form action="api.php" method="POST" enctype="multipart/form-data" class="space-y-4">
+                                        <input type="hidden" name="action" value="add_payment_method">
+                                        <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Method Name</label><input type="text" name="method_name" class="form-input" required placeholder="e.g., Rocket"></div>
+                                        <div>
+                                            <label class="block mb-1.5 font-medium text-gray-700 text-sm">Method Type</label>
+                                            <div class="flex gap-4"><label class="flex items-center gap-2"><input type="radio" name="method_type" value="number" x-model="type" class="form-radio"> Number</label><label class="flex items-center gap-2"><input type="radio" name="method_type" value="pay_id" x-model="type" class="form-radio"> ID</label><label class="flex items-center gap-2"><input type="radio" name="method_type" value="account_number" x-model="type" class="form-radio"> Bank Account</label></div>
+                                        </div>
+                                        <div><label class="block mb-1.5 font-medium text-gray-700 text-sm" x-text="type === 'number' ? 'Number' : (type === 'pay_id' ? 'ID' : 'Account Number')">Number</label><input type="text" name="number_or_id" class="form-input" required></div>
+                                        <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Logo</label><input type="file" name="logo" class="form-input" accept="image/*"></div>
+                                        <div class="flex items-center gap-2 pt-2"><input type="checkbox" name="is_active" id="add_is_active" value="true" checked class="h-4 w-4 rounded border-gray-300 text-[var(--primary-color)] focus:ring-[var(--primary-color)]"><label for="add_is_active" class="text-sm font-medium text-gray-700">Activate on creation</label></div>
+                                        <button type="submit" class="btn btn-primary mt-4">Add Method</button>
+                                    </form>
+                                </div>
+                            </div>
+                            <form action="api.php" method="POST" class="bg-white p-6 rounded-lg border">
+                                <input type="hidden" name="action" value="update_currency_rate">
+                                <h3 class="text-lg font-semibold mb-4 text-gray-800">Currency Settings</h3>
+                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">1 USD = ? BDT</label><input type="number" step="0.01" name="usd_to_bdt_rate" class="form-input" value="<?= htmlspecialchars($site_config['usd_to_bdt_rate'] ?? '110') ?>" placeholder="e.g., 110.50"></div>
+                                <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Rate</button>
+                            </form>
+                        </div>
+                        </div>
                     </div>
 
-                    <!-- Email & SMTP Settings -->
-                    <form action="api.php" method="POST" class="bg-white p-6 rounded-lg border">
-                        <input type="hidden" name="action" value="update_smtp_settings">
-                        <h3 class="text-lg font-semibold mb-4 text-gray-800">Email & SMTP Settings</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block mb-1.5 font-medium text-gray-700 text-sm">Admin Email Address</label>
-                                <input type="email" name="admin_email" class="form-input" value="<?= htmlspecialchars($site_config['smtp_settings']['admin_email'] ?? '') ?>" placeholder="e.g., admin@yourdomain.com">
-                                <p class="text-xs text-gray-500 mt-1">This email receives new order notifications and is used to send emails to customers.</p>
-                            </div>
-                            <div>
-                                <label class="block mb-1.5 font-medium text-gray-700 text-sm">Gmail App Password</label>
-                                <input type="password" name="app_password" class="form-input" placeholder="Leave blank to keep current password">
-                                <p class="text-xs text-gray-500 mt-1">Enter the 16-character App Password from your Google Account settings.</p>
-                            </div>
+                        <div id="view-settings_contact" style="<?= $current_view === 'settings_contact' ? '' : 'display:none;' ?>">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-6">Contact & Email Settings</h1>
+                        <div class="space-y-8 max-w-5xl mx-auto">
+                            <form action="api.php" method="POST" class="bg-white p-6 rounded-lg border">
+                                <input type="hidden" name="action" value="update_smtp_settings">
+                                <h3 class="text-lg font-semibold mb-4 text-gray-800">Email & SMTP Settings</h3>
+                                <div class="space-y-4">
+                                    <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Admin Email Address</label><input type="email" name="admin_email" class="form-input" value="<?= htmlspecialchars($site_config['smtp_settings']['admin_email'] ?? '') ?>" placeholder="e.g., admin@yourdomain.com"><p class="text-xs text-gray-500 mt-1">This email receives new order notifications and is used to send emails to customers.</p></div>
+                                    <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Gmail App Password</label><input type="password" name="app_password" class="form-input" placeholder="Leave blank to keep current password"><p class="text-xs text-gray-500 mt-1">Enter the 16-character App Password from your Google Account settings.</p></div>
+                                </div>
+                                <button type="submit" class="btn btn-primary mt-6"><i class="fa-solid fa-floppy-disk"></i> Save SMTP Settings</button>
+                            </form>
+                            <form action="api.php" method="POST" class="bg-white p-6 rounded-lg border">
+                                <input type="hidden" name="action" value="update_contact_info">
+                                <h3 class="text-lg font-semibold mb-4 text-gray-800">Help Center Contacts</h3>
+                                <div class="space-y-4">
+                                    <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Phone Number</label><input type="text" name="phone_number" class="form-input" value="<?= htmlspecialchars($site_config['contact_info']['phone'] ?? '') ?>" placeholder="+8801234567890"></div>
+                                    <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">WhatsApp Number</label><input type="text" name="whatsapp_number" class="form-input" value="<?= htmlspecialchars($site_config['contact_info']['whatsapp'] ?? '') ?>" placeholder="8801234567890 (without +)"></div>
+                                    <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Email Address</label><input type="email" name="email_address" class="form-input" value="<?= htmlspecialchars($site_config['contact_info']['email'] ?? '') ?>" placeholder="contact@example.com"></div>
+                                </div>
+                                <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Contacts</button>
+                            </form>
                         </div>
-                        <button type="submit" class="btn btn-primary mt-6"><i class="fa-solid fa-floppy-disk"></i> Save SMTP Settings</button>
-                    </form>
-                    
-                    <!-- Payment Gateway Settings -->
-                    <div class="bg-white p-6 rounded-lg border">
-                        <h3 class="text-lg font-semibold mb-4 text-gray-800">Payment Gateway Settings</h3>
-                        <div class="space-y-6">
-                            <?php
-                            $payment_methods_config = $site_config['payment_methods'] ?? [];
-                            foreach ($payment_methods_config as $method_name => $method_details):
-                                $is_active = $method_details['is_active'] ?? false;
-                                $is_default = $method_details['is_default'] ?? false;
-                            ?>
-                            <div class="p-4 border rounded-md bg-gray-50 flex flex-wrap items-center justify-between gap-4">
-                                <div class="flex items-center gap-4">
-                                    <?php if (!empty($method_details['logo_url']) && file_exists($method_details['logo_url'])): ?>
-                                        <img src="<?= htmlspecialchars($method_details['logo_url']) ?>" class="h-16 w-16 border bg-white rounded-md object-contain">
-                                    <?php endif; ?>
-                                    <div>
-                                        <h4 class="font-semibold text-gray-700"><?= htmlspecialchars($method_name) ?> <?php if($is_default): ?><span class="text-xs bg-gray-200 text-gray-600 font-bold px-2 py-0.5 rounded-full ml-2">Default</span><?php endif; ?></h4>
-                                        <p class="text-sm text-gray-500"><?= htmlspecialchars($method_details['number'] ?? $method_details['pay_id'] ?? $method_details['account_number'] ?? '') ?></p>
-                                        <span class="mt-2 inline-block text-sm font-bold py-0.5 px-2 rounded-full <?= $is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' ?>"><?= $is_active ? 'Active' : 'Inactive' ?></span>
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-2 flex-shrink-0">
-                                    <form action="api.php" method="POST">
-                                        <input type="hidden" name="action" value="toggle_payment_method_status">
-                                        <input type="hidden" name="method_name" value="<?= htmlspecialchars($method_name) ?>">
-                                        <button type="submit" class="btn btn-secondary btn-sm"><?= $is_active ? 'Deactivate' : 'Activate' ?></button>
-                                    </form>
-                                    <button type="button" @click="openPaymentModal('<?= htmlspecialchars($method_name, ENT_QUOTES) ?>')" class="btn btn-secondary btn-sm"><i class="fa-solid fa-pencil"></i> Edit</button>
-                                    <?php if(!$is_default): ?>
-                                    <form action="api.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this payment method?');">
-                                        <input type="hidden" name="action" value="delete_payment_method">
-                                        <input type="hidden" name="method_name" value="<?= htmlspecialchars($method_name) ?>">
-                                        <button type="submit" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i></button>
-                                    </form>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                            <?php endforeach; ?>
+
                         </div>
-                        <hr class="my-6">
-                        <div class="bg-gray-50 p-6 rounded-lg border" x-data="{ type: 'number' }">
-                            <h3 class="text-lg font-semibold mb-4 text-gray-800">Add New Payment Method</h3>
-                            <form action="api.php" method="POST" enctype="multipart/form-data" class="space-y-4">
-                                <input type="hidden" name="action" value="add_payment_method">
+                    </div>
+
+                        <div id="view-settings_security" style="<?= $current_view === 'settings_security' ? '' : 'display:none;' ?>">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-6">Security Settings</h1>
+                        <div class="space-y-8 max-w-5xl mx-auto">
+                            <form action="api.php" method="POST" class="bg-white p-6 rounded-lg border">
+                                <input type="hidden" name="action" value="update_admin_password">
+                                <h3 class="text-lg font-semibold mb-4 text-gray-800">Change Admin Password</h3>
                                 <div>
-                                    <label class="block mb-1.5 font-medium text-gray-700 text-sm">Method Name</label>
-                                    <input type="text" name="method_name" class="form-input" required placeholder="e.g., Rocket">
+                                    <label for="new_password_field" class="block mb-1.5 font-medium text-gray-700 text-sm">New Password</label>
+                                    <div class="relative"><input type="password" id="new_password_field" name="new_password" class="form-input pr-16" placeholder="Leave blank to keep current password"><button type="button" id="toggle_password_btn" class="absolute top-1/2 right-2 -translate-y-1/2 text-xs font-semibold text-gray-600 bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded-md transition-colors">Show</button></div>
                                 </div>
-                                <div>
-                                    <label class="block mb-1.5 font-medium text-gray-700 text-sm">Method Type</label>
-                                    <div class="flex gap-4">
-                                        <label class="flex items-center gap-2"><input type="radio" name="method_type" value="number" x-model="type" class="form-radio"> Number</label>
-                                        <label class="flex items-center gap-2"><input type="radio" name="method_type" value="pay_id" x-model="type" class="form-radio"> ID</label>
-                                        <label class="flex items-center gap-2"><input type="radio" name="method_type" value="account_number" x-model="type" class="form-radio"> Bank Account</label>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block mb-1.5 font-medium text-gray-700 text-sm" x-text="type === 'number' ? 'Number' : (type === 'pay_id' ? 'ID' : 'Account Number')">Number</label>
-                                    <input type="text" name="number_or_id" class="form-input" required>
-                                </div>
-                                <div>
-                                    <label class="block mb-1.5 font-medium text-gray-700 text-sm">Logo</label>
-                                    <input type="file" name="logo" class="form-input" accept="image/*">
-                                </div>
-                                 <div class="flex items-center gap-2 pt-2"><input type="checkbox" name="is_active" id="add_is_active" value="true" checked class="h-4 w-4 rounded border-gray-300 text-[var(--primary-color)] focus:ring-[var(--primary-color)]"><label for="add_is_active" class="text-sm font-medium text-gray-700">Activate on creation</label></div>
-                                <button type="submit" class="btn btn-primary mt-4">Add Method</button>
+                                <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Password</button>
                             </form>
                         </div>
                     </div>
-
-                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <form action="api.php" method="POST" class="bg-white p-6 rounded-lg border">
-                            <input type="hidden" name="action" value="update_currency_rate">
-                            <h3 class="text-lg font-semibold mb-4 text-gray-800">Currency Settings</h3>
-                            <div>
-                                <label class="block mb-1.5 font-medium text-gray-700 text-sm">1 USD = ? BDT</label>
-                                <input type="number" step="0.01" name="usd_to_bdt_rate" class="form-input" value="<?= htmlspecialchars($site_config['usd_to_bdt_rate'] ?? '110') ?>" placeholder="e.g., 110.50">
-                            </div>
-                            <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Rate</button>
-                        </form>
-
-                        <form action="api.php" method="POST" class="bg-white p-6 rounded-lg border">
-                            <input type="hidden" name="action" value="update_contact_info">
-                            <h3 class="text-lg font-semibold mb-4 text-gray-800">Help Center Contacts</h3>
-                            <div class="space-y-4">
-                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Phone Number</label><input type="text" name="phone_number" class="form-input" value="<?= htmlspecialchars($site_config['contact_info']['phone'] ?? '') ?>" placeholder="+8801234567890"></div>
-                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">WhatsApp Number</label><input type="text" name="whatsapp_number" class="form-input" value="<?= htmlspecialchars($site_config['contact_info']['whatsapp'] ?? '') ?>" placeholder="8801234567890 (without +)"></div>
-                                <div><label class="block mb-1.5 font-medium text-gray-700 text-sm">Email Address</label><input type="email" name="email_address" class="form-input" value="<?= htmlspecialchars($site_config['contact_info']['email'] ?? '') ?>" placeholder="contact@example.com"></div>
-                            </div>
-                             <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Contacts</button>
-                        </form>
-                    </div>
-
-                    <form action="api.php" method="POST" class="bg-white p-6 rounded-lg border">
-                        <input type="hidden" name="action" value="update_admin_password">
-                        <h3 class="text-lg font-semibold mb-4 text-gray-800">Change Admin Password</h3>
-                        <div>
-                            <label for="new_password_field" class="block mb-1.5 font-medium text-gray-700 text-sm">New Password</label>
-                            <div class="relative">
-                                <input type="password" id="new_password_field" name="new_password" class="form-input pr-16" placeholder="Leave blank to keep current password">
-                                <button type="button" id="toggle_password_btn" class="absolute top-1/2 right-2 -translate-y-1/2 text-xs font-semibold text-gray-600 bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded-md transition-colors">Show</button>
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Password</button>
-                    </form>
                 </div>
             </div>
         <?php endif; ?>

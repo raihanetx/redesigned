@@ -1,5 +1,5 @@
 <!-- Customer Management View -->
-<div id="view-customers" style="<?= $current_view === 'customers' ? '' : 'display:none;' ?>" class="p-6" x-data="customersManager()">
+<div id="view-profiles" style="<?= $current_view === 'profiles' ? '' : 'display:none;' ?>" class="p-6" x-data="customersManager()">
     <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-bold text-gray-700">Manage Customers</h2>
     </div>
